@@ -20,3 +20,8 @@ tmp/
 # Assignment administrative documents
 *.doc
 *.docx
+
+# Official assignment materials
+2026A1.pdf
+Trips.txt
+Taxis.txt
