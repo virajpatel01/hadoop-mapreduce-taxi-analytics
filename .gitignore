@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Python generated files
+__pycache__/
+*.pyc
+*.pyo
+
+# VS Code local settings
+.vscode/
+
+# Local Hadoop / testing output
+task*_output.txt
+output/
+tmp/
+
+# Final submission packages
+*.zip
+
+# Assignment administrative documents
+*.doc
+*.docx
