@@ -85,6 +85,10 @@ fi
 #
 # Cluster IDs are created dynamically, so k is not hard-coded.
 awk '
+    BEGIN {
+        cluster_id = 0
+    }
+
     NR > 1 && NF >= 2 {
         print cluster_id "\t" $1 "\t" $2
         cluster_id++
