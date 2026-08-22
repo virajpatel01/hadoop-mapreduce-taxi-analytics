@@ -25,3 +25,10 @@ tmp/
 2026A1.pdf
 Trips.txt
 Taxis.txt
+
+# Task 2 local testing artefacts
+task2_*test*.txt
+task2_assignment_iter*.txt
+task2_update_*.txt
+task2_test_medoids*.txt
+task2_*.tmp
