@@ -1,34 +1,19 @@
 #!/usr/bin/env python3
 
-# Task 3, Job 3 mapper (sorting).
-# Input is Job 2's output:
-#   company, revenue, trips, fleet, rev_per_taxi, avg_dist
-#
-# Goal: final result sorted by revenue, HIGHEST first, split across
-# 3 reducers so reducer 0 = top band, reducer 1 = middle, reducer 2 = bottom.
-#
-# Trick (order inversion, taught in the course): instead of relying on a
-# reverse comparator, I build a numeric sort key that already sorts the
-# right way under a plain ascending sort. I use (BIG - revenue) as the
-# sort key, so the biggest revenue gives the smallest sort key and lands
-# first. No "-nr" needed anywhere.
-#
-# I also add a band number as the FIRST key field so the partitioner can
-# send each band to its own reducer.
-#
-# Output:
-#   band <tab> sortkey <tab> company <tab> revenue <tab> trips <tab> fleet <tab> rev_per_taxi <tab> avg_dist
-# The first TWO fields (band, sortkey) are the key. The rest is the value.
+# Task 3, Job 3 mapper
 
 import sys
 
-# A number safely bigger than any possible company revenue.
+
+# Value used to reverse the revenue sort
 BIG = 1000000000.0
 
-# Revenue cut-offs that decide the band. Tune these to the real data so the
-# three reducers each get a share. band 0 = top, band 1 = middle, band 2 = bottom.
-HIGH_CUTOFF = 285000.0   # revenue >= this  -> band 0 (top)
-LOW_CUTOFF = 250000.0    # revenue >= this  -> band 1 (middle), else band 2 (bottom)
+if len(sys.argv) != 3:
+    print("Usage: task3_job3_mapper.py <high_cutoff> <low_cutoff>", file=sys.stderr)
+    sys.exit(1)
+
+HIGH_CUTOFF = float(sys.argv[1])
+LOW_CUTOFF = float(sys.argv[2])
 
 
 def band_for(revenue):
@@ -42,6 +27,7 @@ def band_for(revenue):
 
 for line in sys.stdin:
     line = line.strip()
+
     if not line:
         continue
 
@@ -50,6 +36,7 @@ for line in sys.stdin:
         continue
 
     company = parts[0]
+
     try:
         revenue = float(parts[1])
     except ValueError:
@@ -62,10 +49,9 @@ for line in sys.stdin:
 
     band = band_for(revenue)
 
-    # sort key: big minus revenue, so highest revenue -> smallest key -> comes first
+    # Higher revenue gets a smaller sort key
     sortkey = BIG - revenue
 
-    # band and sortkey are the key (first 2 fields); the rest is the value.
     print(
         str(band) + "\t"
         + format(sortkey, ".2f") + "\t"

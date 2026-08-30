@@ -1,14 +1,9 @@
 #!/bin/bash
 
-# Task 2 - Clustering Taxi Trips by Drop-off Location
-# Implements iterative PAM (k-medoid) clustering using Hadoop Streaming.
+# Task 2 - Clustering Taxi Trips by Dropoff Location
+# Iterative PAM (k-medoid) clustering using Hadoop Streaming.
 
 set -euo pipefail
-
-
-# --------------------------------------------------
-# Configuration
-# --------------------------------------------------
 
 INPUT="/Input/Trips.txt"
 OUTPUT="/Output/task2"
@@ -23,18 +18,11 @@ STREAMING_JAR="/usr/lib/hadoop-mapreduce/hadoop-streaming.jar"
 CURRENT_MEDOIDS="task2_current_medoids.tmp"
 ITERATION_RESULT="task2_iteration_result.tmp"
 
-
-# Remove local temporary files whenever the script exits.
 cleanup_local_files() {
     rm -f "$CURRENT_MEDOIDS" "$ITERATION_RESULT"
 }
 
 trap cleanup_local_files EXIT
-
-
-# --------------------------------------------------
-# Validate required files
-# --------------------------------------------------
 
 for file in "$MAPPER" "$REDUCER" "$INITIALIZATION"
 do
@@ -54,18 +42,13 @@ if ! hadoop fs -test -e "$INPUT"; then
     exit 1
 fi
 
-
-# --------------------------------------------------
-# Read initialization.txt
-# --------------------------------------------------
-
+# first line of initialization.txt is v, the max iterations
 MAX_ITERATIONS=$(
     sed -n '1p' "$INITIALIZATION" |
     tr -d '\r' |
     xargs
 )
 
-# v must be a positive integer.
 case "$MAX_ITERATIONS" in
     ''|*[!0-9]*)
         echo "ERROR: Invalid maximum iteration value."
@@ -78,12 +61,8 @@ if [ "$MAX_ITERATIONS" -lt 1 ]; then
     exit 1
 fi
 
-
-# Convert the supplied medoid coordinates into:
-#
-# cluster_id <tab> medoid_x <tab> medoid_y
-#
-# Cluster IDs are created dynamically, so k is not hard-coded.
+# rest of the lines are the initial medoids, turn them into
+# cluster_id, medoid_x, medoid_y so k isn't hard-coded anywhere
 awk '
     BEGIN {
         cluster_id = 0
@@ -103,38 +82,23 @@ if [ "$K" -lt 1 ]; then
     exit 1
 fi
 
-
-echo "=========================================="
 echo "Task 2 - PAM k-Medoid Clustering"
-echo "=========================================="
 echo "k = $K"
 echo "Maximum iterations = $MAX_ITERATIONS"
 echo
 
-
-# --------------------------------------------------
-# Prepare HDFS directories
-# --------------------------------------------------
-
 hadoop fs -mkdir -p /Output
 
-# Remove previous final output.
 if hadoop fs -test -e "$OUTPUT"; then
     echo "Removing previous output: $OUTPUT"
     hadoop fs -rm -r -f "$OUTPUT"
 fi
 
-# Remove previous intermediate data.
 if hadoop fs -test -e "$WORK_ROOT"; then
     hadoop fs -rm -r -f "$WORK_ROOT"
 fi
 
 hadoop fs -mkdir -p "$WORK_ROOT"
-
-
-# --------------------------------------------------
-# PAM iterations
-# --------------------------------------------------
 
 ITERATION=1
 PREVIOUS_ASSIGNMENT=""
@@ -145,15 +109,10 @@ do
     ASSIGNMENT_OUTPUT="$WORK_ROOT/assignment_$ITERATION"
     UPDATE_OUTPUT="$WORK_ROOT/update_$ITERATION"
 
-    echo "------------------------------------------"
     echo "Iteration $ITERATION"
-    echo "------------------------------------------"
 
-
-    # ----------------------------------------------
-    # Assignment step
-    # ----------------------------------------------
-
+    # iteration 1 reads Trips.txt directly, later ones read the
+    # previous round's assignment output so changes can be tracked
     if [ "$ITERATION" -eq 1 ]; then
         ASSIGNMENT_INPUT="$INPUT"
         INPUT_TYPE="trips"
@@ -171,11 +130,6 @@ do
         -input "$ASSIGNMENT_INPUT" \
         -output "$ASSIGNMENT_OUTPUT"
 
-
-    # ----------------------------------------------
-    # PAM medoid-update step
-    # ----------------------------------------------
-
     hadoop jar "$STREAMING_JAR" \
         -D mapreduce.job.name="Task2_Update_$ITERATION" \
         -D mapreduce.job.reduces=3 \
@@ -185,17 +139,10 @@ do
         -input "$ASSIGNMENT_OUTPUT" \
         -output "$UPDATE_OUTPUT"
 
-
-    # Merge only the small per-cluster update results locally.
-    # This does NOT copy or process Trips.txt locally.
+    # just the small per-cluster result, not the trip data itself
     hadoop fs -cat "$UPDATE_OUTPUT"/part-* \
         | sort -t$'\t' -k1,1n \
         > "$ITERATION_RESULT"
-
-
-    # ----------------------------------------------
-    # Required iteration stdout
-    # ----------------------------------------------
 
     awk -F'\t' '
         {
@@ -203,7 +150,6 @@ do
                    $1, $2, $3, $4, $5
         }
     ' "$ITERATION_RESULT"
-
 
     CHANGED_ASSIGNMENTS=$(
         awk -F'\t' '
@@ -219,13 +165,7 @@ do
     echo "Changed assignments: $CHANGED_ASSIGNMENTS"
     echo
 
-
     LAST_UPDATE="$UPDATE_OUTPUT"
-
-
-    # ----------------------------------------------
-    # Convergence check
-    # ----------------------------------------------
 
     if [ "$CHANGED_ASSIGNMENTS" -eq 0 ]; then
         echo "Converged after $ITERATION iteration(s)."
@@ -237,24 +177,15 @@ do
         break
     fi
 
-
-    # ----------------------------------------------
-    # Prepare medoids for next iteration
-    # ----------------------------------------------
-
     awk -F'\t' '
         {
             print $1 "\t" $2 "\t" $3
         }
     ' "$ITERATION_RESULT" > "$CURRENT_MEDOIDS"
 
-
-    # The current assignment becomes the previous assignment
-    # used to detect changes during the next iteration.
     PREVIOUS_ASSIGNMENT="$ASSIGNMENT_OUTPUT"
 
-
-    # Older intermediate directories are no longer required.
+    # clean up the previous iteration's data, no longer needed
     if [ "$ITERATION" -gt 1 ]; then
         OLD_ITERATION=$((ITERATION - 1))
 
@@ -263,14 +194,8 @@ do
             "$WORK_ROOT/update_$OLD_ITERATION"
     fi
 
-
     ITERATION=$((ITERATION + 1))
 done
-
-
-# --------------------------------------------------
-# Produce required final output
-# --------------------------------------------------
 
 echo
 echo "Creating final output in $OUTPUT ..."
@@ -284,8 +209,6 @@ hadoop jar "$STREAMING_JAR" \
     -input "$LAST_UPDATE" \
     -output "$OUTPUT"
 
-
-# Verify that exactly k final cluster records were produced.
 FINAL_COUNT=$(
     hadoop fs -cat "$OUTPUT"/part-* |
     awk 'END {print NR}'
@@ -296,10 +219,7 @@ if [ "$FINAL_COUNT" -ne "$K" ]; then
     exit 1
 fi
 
-
-# Clean up all intermediate HDFS results.
 hadoop fs -rm -r -f "$WORK_ROOT"
-
 
 echo
 echo "Task 2 completed successfully."

@@ -5,27 +5,13 @@ import sys
 
 
 def format_coordinate(value):
-    """
-    Format a coordinate without introducing unnecessary
-    trailing zeros while preserving its numeric value.
-    """
+    # drop trailing zeros but keep full precision
     return format(value, ".15g")
 
 
 def evaluate_cluster(cluster_id, coordinates):
-    """
-    Evaluate every distinct assigned coordinate as a candidate
-    medoid for one cluster.
-
-    coordinates:
-        {
-            (x, y): [point_count, changed_count]
-        }
-
-    Each coordinate may represent multiple trips. Frequencies
-    are used as weights so the calculation is mathematically
-    equivalent to evaluating every individual trip.
-    """
+    # coordinates: {(x, y): [point_count, changed_count]}
+    # frequencies act as weights so this is the same as checking every trip one by one
     total_points = 0
     total_changed = 0
 
@@ -39,14 +25,11 @@ def evaluate_cluster(cluster_id, coordinates):
     best_coordinate = None
     best_average_dissimilarity = None
 
-    # PAM update:
-    # Treat every assigned data point as a candidate medoid.
+    # PAM swap step: try every assigned point as the new medoid
     for candidate_x, candidate_y in coordinates.keys():
 
         total_dissimilarity = 0.0
 
-        # Calculate the weighted sum of Euclidean distances
-        # from this candidate to every point in the cluster.
         for (point_x, point_y), values in coordinates.items():
             point_count = values[0]
 
@@ -68,11 +51,8 @@ def evaluate_cluster(cluster_id, coordinates):
             candidate_y
         )
 
-        # Select the candidate with the minimum average
-        # dissimilarity.
-        #
-        # If two candidates have effectively identical cost,
-        # use coordinate ordering as a deterministic tie-break.
+        # keep whichever candidate has the lowest cost
+        # ties broken by coordinate order so results stay consistent
         if best_average_dissimilarity is None:
             best_coordinate = candidate_coordinate
             best_average_dissimilarity = (
@@ -103,14 +83,7 @@ def evaluate_cluster(cluster_id, coordinates):
 
     medoid_x, medoid_y = best_coordinate
 
-    # Intermediate update format:
-    #
-    # cluster_id
-    # medoid_x
-    # medoid_y
-    # number_of_points
-    # average_dissimilarity
-    # changed_assignments
+    # cluster_id, medoid_x, medoid_y, points, avg_dissimilarity, changed
     print(
         f"{cluster_id}\t"
         f"{format_coordinate(medoid_x)}\t"
@@ -122,23 +95,10 @@ def evaluate_cluster(cluster_id, coordinates):
 
 
 def update_reducer():
-    """
-    Perform the PAM medoid-update step.
-
-    Input from update mapper:
-        cluster_id <tab>
-        x <tab>
-        y <tab>
-        point_count <tab>
-        changed_count
-
-    Hadoop groups records by cluster_id.
-    """
-
+    # hadoop groups by cluster_id, sorted, so we can stream through
     current_cluster = None
 
-    # Stores only distinct coordinates and their frequencies
-    # for the current cluster.
+    # distinct coords + their counts for the cluster we're on
     coordinates = {}
 
     for line in sys.stdin:
@@ -174,9 +134,7 @@ def update_reducer():
         if current_cluster is None:
             current_cluster = cluster_id
 
-        # Hadoop input is sorted by key.
-        # Once the cluster ID changes, the previous
-        # cluster is complete.
+        # cluster changed, previous one is done
         if cluster_id != current_cluster:
 
             evaluate_cluster(
@@ -187,8 +145,7 @@ def update_reducer():
             current_cluster = cluster_id
             coordinates = {}
 
-        # Multiple mapper tasks may have emitted partial
-        # counts for the same coordinate, so merge them here.
+        # merge partials from different mappers for the same coordinate
         if coordinate not in coordinates:
             coordinates[coordinate] = [
                 point_count,
@@ -198,7 +155,7 @@ def update_reducer():
             coordinates[coordinate][0] += point_count
             coordinates[coordinate][1] += changed_count
 
-    # Emit the final cluster after EOF.
+    # last cluster has no next key to trigger the emit above
     if current_cluster is not None:
         evaluate_cluster(
             current_cluster,
@@ -207,22 +164,7 @@ def update_reducer():
 
 
 def final_reducer():
-    """
-    Produce the required final Task 2 output.
-
-    Input:
-        cluster_id <tab>
-        medoid_x <tab>
-        medoid_y <tab>
-        number_of_points <tab>
-        average_dissimilarity
-
-    Final output:
-        medoid_x <tab>
-        medoid_y <tab>
-        number_of_points <tab>
-        average_dissimilarity
-    """
+    # drops cluster_id and changed_assignments, keeps just what task2 requires
     for line in sys.stdin:
         line = line.strip()
 

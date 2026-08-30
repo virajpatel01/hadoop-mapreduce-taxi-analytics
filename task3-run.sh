@@ -1,22 +1,16 @@
 #!/bin/bash
 
 # Task 3 - Company Performance Analysis
-# Runs three chained MapReduce jobs on EMR:
-#   Job 1: join Trips.txt with Taxis.txt
-#   Job 2: aggregate per-company metrics
-#   Job 3: sort companies by revenue, highest first
-# Final result lands in /Output/task3.
 
 set -euo pipefail
 
 
-# ----- paths -----
+# Paths
 
 TRIPS="/Input/Trips.txt"
 TAXIS="/Input/Taxis.txt"
 OUTPUT="/Output/task3"
 
-# intermediate work goes here, kept out of /Output and cleaned up at the end
 WORK="/tmp/task3_work"
 JOB1_OUT="$WORK/job1"
 JOB2_OUT="$WORK/job2"
@@ -31,7 +25,7 @@ J3_MAP="task3_job3_mapper.py"
 J3_RED="task3_job3_reducer.py"
 
 
-# ----- checks -----
+# Check required files
 
 for f in "$J1_MAP" "$J1_RED" "$J2_MAP" "$J2_RED" "$J3_MAP" "$J3_RED"
 do
@@ -57,7 +51,7 @@ if ! hadoop fs -test -e "$TAXIS"; then
 fi
 
 
-# ----- clean old output and work dirs -----
+# Remove old output and temporary files
 
 hadoop fs -mkdir -p /Output
 
@@ -73,14 +67,10 @@ fi
 hadoop fs -mkdir -p "$WORK"
 
 
-echo "=========================================="
 echo "Task 3 - Company Performance Analysis"
-echo "=========================================="
 
 
-# ----- JOB 1: JOIN -----
-# Both files go in together. Mapper tags each record and keys on taxi id.
-# Reducer attaches the company to every trip.
+# Job 1: Join
 
 echo ""
 echo "--- Job 1: Join ---"
@@ -96,9 +86,7 @@ hadoop jar "$STREAMING_JAR" \
     -output "$JOB1_OUT"
 
 
-# ----- JOB 2: AGGREGATION -----
-# Re-key on company, then total revenue/trips/distance and count
-# distinct taxis (fleet size).
+# Job 2: Aggregation
 
 echo ""
 echo "--- Job 2: Aggregation ---"
@@ -113,11 +101,23 @@ hadoop jar "$STREAMING_JAR" \
     -output "$JOB2_OUT"
 
 
-# ----- JOB 3: SORT -----
-# Mapper adds a revenue band as the first key field.
-# KeyFieldBasedPartitioner sends each band to its own reducer.
-# KeyFieldBasedComparator sorts by band, then revenue descending.
-# Merging reducer 0 + 1 + 2 gives a global high-to-low order.
+# Job 3: Sort
+
+echo ""
+echo "--- Computing dynamic revenue cutoffs ---"
+
+JOB2_LOCAL="task3_job2_output.tmp"
+
+hadoop fs -cat "$JOB2_OUT"/part-* > "$JOB2_LOCAL"
+
+CUTOFFS=$(python3 task3_compute_cutoffs.py "$JOB2_LOCAL")
+HIGH_CUTOFF=$(echo "$CUTOFFS" | sed -n '1p')
+LOW_CUTOFF=$(echo "$CUTOFFS" | sed -n '2p')
+
+echo "High cutoff: $HIGH_CUTOFF"
+echo "Low cutoff:  $LOW_CUTOFF"
+
+rm -f "$JOB2_LOCAL"
 
 echo ""
 echo "--- Job 3: Sort by revenue (descending) ---"
@@ -130,14 +130,14 @@ hadoop jar "$STREAMING_JAR" \
     -D mapreduce.partition.keypartitioner.options=-k1,1 \
     -D mapreduce.partition.keycomparator.options="-k1,1n -k2,2n" \
     -files "$J3_MAP","$J3_RED" \
-    -mapper "python3 $J3_MAP" \
+    -mapper "python3 $J3_MAP $HIGH_CUTOFF $LOW_CUTOFF" \
     -reducer "python3 $J3_RED" \
     -partitioner org.apache.hadoop.mapred.lib.KeyFieldBasedPartitioner \
     -input "$JOB2_OUT" \
     -output "$OUTPUT"
 
 
-# ----- clean up intermediates -----
+# Clean up temporary files
 
 hadoop fs -rm -r -f "$WORK"
 

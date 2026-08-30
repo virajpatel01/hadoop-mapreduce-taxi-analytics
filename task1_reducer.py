@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
+from dataclasses import fields
 import sys
+from decimal import Decimal, InvalidOperation
 
 
 def emit_result(key, total_count, total_fare, min_fare, max_fare):
@@ -29,7 +31,7 @@ def main():
     current_key = None
 
     total_count = 0
-    total_fare = 0.0
+    total_fare = Decimal("0")
     min_fare = None
     max_fare = None
 
@@ -51,10 +53,10 @@ def main():
 
         try:
             partial_count = int(fields[1])
-            partial_sum = float(fields[2])
-            partial_min = float(fields[3])
-            partial_max = float(fields[4])
-        except ValueError:
+            partial_sum = Decimal(fields[2])
+            partial_min = Decimal(fields[3])
+            partial_max = Decimal(fields[4])
+        except (ValueError, InvalidOperation):
             # Skip malformed intermediate records.
             continue
 

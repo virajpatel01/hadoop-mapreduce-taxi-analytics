@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import sys
+from decimal import Decimal, InvalidOperation
 
 
 def classify_trip(distance):
@@ -49,9 +50,9 @@ def main():
 
         try:
             taxi_id = fields[1]
-            fare = float(fields[2])
-            distance = float(fields[3])
-        except ValueError:
+            fare = Decimal(fields[2])
+            distance = Decimal(fields[3])
+        except (ValueError, InvalidOperation):
             # Ignore malformed numeric records instead of
             # terminating the entire Hadoop mapper.
             continue

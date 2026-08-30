@@ -5,13 +5,7 @@ import sys
 
 
 def load_medoids(filename):
-    """
-    Load the current medoids from a local file distributed
-    to the mapper through Hadoop Streaming.
-
-    Expected format:
-        cluster_id    medoid_x    medoid_y
-    """
+    # file format: cluster_id  medoid_x  medoid_y
     medoids = []
 
     with open(filename, "r", encoding="utf-8") as file:
@@ -38,17 +32,14 @@ def load_medoids(filename):
     if not medoids:
         raise RuntimeError("No valid medoids were loaded.")
 
-    # Keep cluster ordering deterministic.
+    # sort by id so ordering doesn't depend on file order
     medoids.sort(key=lambda item: item[0])
 
     return medoids
 
 
 def nearest_medoid(x, y, medoids):
-    """
-    Return the ID of the medoid closest to point (x, y)
-    using Euclidean distance.
-    """
+    # euclidean distance to each medoid, return the closest cluster id
     best_cluster = None
     best_distance = None
 
@@ -66,15 +57,8 @@ def nearest_medoid(x, y, medoids):
 
 
 def assignment_mapper(medoid_file, input_type):
-    """
-    Assign every drop-off point to its nearest current medoid.
-
-    input_type = "trips"
-        Input is the original Trips.txt file.
-
-    input_type = "assignments"
-        Input is the previous iteration's assignment output.
-    """
+    # input_type "trips" = first iteration, reading Trips.txt directly
+    # input_type "assignments" = later iterations, reading last round's output
     medoids = load_medoids(medoid_file)
 
     for line in sys.stdin:
@@ -84,9 +68,7 @@ def assignment_mapper(medoid_file, input_type):
             continue
 
         if input_type == "trips":
-            # Trips.txt:
-            # trip_id,taxi_id,fare,distance,
-            # pickup_x,pickup_y,dropoff_x,dropoff_y
+            # trip_id,taxi_id,fare,distance,pickup_x,pickup_y,dropoff_x,dropoff_y
             fields = line.split(",")
 
             if len(fields) != 8:
@@ -99,9 +81,7 @@ def assignment_mapper(medoid_file, input_type):
             old_cluster = None
 
         elif input_type == "assignments":
-            # Previous assignment output:
-            # cluster_id <tab> trip_id <tab>
-            # x <tab> y <tab> changed
+            # cluster_id, trip_id, x, y, changed
             fields = line.split("\t")
 
             if len(fields) != 5:
@@ -129,8 +109,7 @@ def assignment_mapper(medoid_file, input_type):
 
         new_cluster = nearest_medoid(x, y, medoids)
 
-        # The first iteration has no previous assignment,
-        # so every point is considered newly assigned.
+        # no previous assignment on iteration 1, so treat it as changed
         if old_cluster is None:
             changed = 1
         elif old_cluster == new_cluster:
@@ -138,11 +117,7 @@ def assignment_mapper(medoid_file, input_type):
         else:
             changed = 1
 
-        # Hadoop key:
-        #   cluster_id
-        #
-        # Hadoop value:
-        #   trip_id, x, y, changed
+        # key = cluster_id, value = trip_id, x, y, changed
         print(
             f"{new_cluster}\t"
             f"{trip_id}\t"
@@ -153,20 +128,8 @@ def assignment_mapper(medoid_file, input_type):
 
 
 def update_mapper():
-    """
-    Partially aggregate assigned drop-off locations before the
-    PAM update reducer.
-
-    Input:
-        cluster_id <tab> trip_id <tab> x <tab> y <tab> changed
-
-    Output:
-        cluster_id <tab> x <tab> y <tab>
-        point_count <tab> changed_count
-
-    Repeated coordinates are combined within each mapper task
-    to reduce shuffle traffic.
-    """
+    # combines repeated (cluster, x, y) coords within this mapper
+    # before shuffling, to cut down traffic to the reducer
     aggregates = {}
 
     for line in sys.stdin:
@@ -196,15 +159,12 @@ def update_mapper():
         key = (cluster_id, x_text, y_text)
 
         if key not in aggregates:
-            # [number of points at this coordinate,
-            #  number whose cluster assignment changed]
+            # [point count, changed count]
             aggregates[key] = [1, changed]
         else:
             aggregates[key][0] += 1
             aggregates[key][1] += changed
 
-    # Emit one partial frequency record per
-    # cluster/coordinate combination.
     for (cluster_id, x_text, y_text), values in aggregates.items():
         point_count, changed_count = values
 
@@ -218,24 +178,7 @@ def update_mapper():
 
 
 def final_mapper():
-    """
-    Prepare the final PAM update result for the final reducer.
-
-    Input:
-        cluster_id <tab>
-        medoid_x <tab>
-        medoid_y <tab>
-        number_of_points <tab>
-        average_dissimilarity <tab>
-        changed_assignments
-
-    Output:
-        cluster_id <tab>
-        medoid_x <tab>
-        medoid_y <tab>
-        number_of_points <tab>
-        average_dissimilarity
-    """
+    # strips changed_assignments off before the final output job
     for line in sys.stdin:
         line = line.strip()
 
@@ -262,7 +205,6 @@ def final_mapper():
         except ValueError:
             continue
 
-        # Keep cluster_id as the Hadoop key during shuffle.
         print(
             f"{cluster_id}\t"
             f"{medoid_x}\t"

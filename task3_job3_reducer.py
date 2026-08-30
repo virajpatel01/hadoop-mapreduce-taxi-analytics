@@ -1,24 +1,18 @@
 #!/usr/bin/env python3
 
-# Task 3, Job 3 reducer (sorting).
-# Rows arrive already sorted (by band, then sortkey ascending, which means
-# revenue descending) and already split into the right reducer by the
-# partitioner. Nothing to compute. I just drop the band and sortkey and
-# print the six required fields:
-#
-#   company, revenue, trips, fleet, rev_per_taxi, avg_dist
+# Task 3, Job 3 reducer
 
 import sys
 
 
 for line in sys.stdin:
     line = line.strip()
+
     if not line:
         continue
 
     parts = line.split("\t")
 
-    # incoming: band, sortkey, company, revenue, trips, fleet, rev_per_taxi, avg_dist
     if len(parts) != 8:
         continue
 
